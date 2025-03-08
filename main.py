@@ -69,7 +69,7 @@ def generate_sqls(data):
         try:
             response, _ = call_groq_api(
                 api_key=os.getenv("GROQ_KEY"),
-                model="qwen-2.5-coder-32b",
+                model="llama-3.2-3b-preview",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500
