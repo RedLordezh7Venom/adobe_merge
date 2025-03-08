@@ -32,24 +32,6 @@ def generate_sqls(data):
     """
     sql_statements = []
 
-    # Get database schema for all tables
-    db_name = os.getenv("DB_NAME", "postgres")
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD", "root")
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-
-    # Fetch all tables
-    tables = list_all_tables(db_name, user, password, host, port)
-    
-    # Build schema description
-    schema_description = "Database Schema:\n"
-    for table in tables:
-        table_schema = get_table_schema(db_name, user, password, table,host,port)
-        schema_description += f"\nTable '{table}':\n"
-        for column, dtype in table_schema.items():
-            schema_description += f"- {column} ({dtype})\n"
-
     # Process each NL query
     for item in data:
         nl_query = item.get("NL", "")
@@ -59,8 +41,7 @@ def generate_sqls(data):
         
         # Construct prompt for LLM
         prompt = (
-            f"{schema_description}\n\n"
-            f"Generate a PostgreSQL query for the following request:\n"
+            f"Generate a PostgreSQL query for the following request, based on the schema already provided:\n"
             f"{nl_query}\n\n"
             f"Return only the SQL statement in one line without any addition or markdown"
         )
@@ -69,7 +50,7 @@ def generate_sqls(data):
         try:
             response, _ = call_groq_api(
                 api_key=os.getenv("GROQ_KEY"),
-                model="qwen-2.5-coder-32b",
+                model="llama-3.2-3b-preview",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500
@@ -85,7 +66,25 @@ def generate_sqls(data):
         })
 
     return sql_statements
+
 # Function to call the Groq API
+# Get database schema for all tables
+db_name = os.getenv("DB_NAME", "postgres")
+user = os.getenv("DB_USER", "postgres")
+password = os.getenv("DB_PASSWORD", "root")
+host = os.getenv("DB_HOST", "localhost")
+port = os.getenv("DB_PORT", "5432")
+
+# Fetch all tables
+tables = list_all_tables(db_name, user, password, host, port)
+
+# Build schema description
+schema_description = ""
+for table in tables:
+    table_schema = get_table_schema(db_name, user, password, table,host,port)
+    schema_description += f"\nTable '{table}':\n"
+    for column, dtype in table_schema.items():
+        schema_description += f"- {column} ({dtype})\n"
 def call_groq_api(api_key, model, messages, temperature=0.0, max_tokens=1000, n=1):
     """
     NOTE: DO NOT CHANGE/REMOVE THE TOKEN COUNT CALCULATION 
@@ -105,6 +104,7 @@ def call_groq_api(api_key, model, messages, temperature=0.0, max_tokens=1000, n=
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
+
     data = {
         "model": model,
         "messages": messages,
@@ -131,6 +131,17 @@ def main():
     
     start = time.time()
     # Generate SQL statements
+    #system prompt
+    call_groq_api(
+                api_key=os.getenv("GROQ_KEY"),
+                model="llama-3.2-3b-preview",
+                messages=[
+    {"role": "system", "content": "You are a database expert who generates precise, correct PostgreSQL queries from natural language. Output only the query with no explanations, the schema is as follows {schema_description} ."},
+],
+                temperature=0.1,
+                max_tokens=500
+    )
+        
     sql_statements = generate_sqls(data_1)
     generate_sqls_time = time.time() - start
     
@@ -152,5 +163,4 @@ if __name__ == "__main__":
     generate_sqls_time= main()
     print(f"Time taken to generate SQLs: {generate_sqls_time} seconds")
     print(f"Total tokens: {total_tokens}")
-
     
