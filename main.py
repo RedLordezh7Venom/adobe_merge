@@ -2,6 +2,7 @@
 import json
 import requests
 import time
+import random
 import os
 from dotenv import load_dotenv
 from database import list_all_tables,get_table_schema
@@ -37,6 +38,8 @@ def generate_sqls(data):
         nl_query = item.get("NL", "")
         if not nl_query:
             continue
+        delay = random.uniform(0, 0.1)
+        time.sleep(delay)
     
         
         # Construct prompt for LLM
@@ -163,4 +166,3 @@ if __name__ == "__main__":
     generate_sqls_time= main()
     print(f"Time taken to generate SQLs: {generate_sqls_time} seconds")
     print(f"Total tokens: {total_tokens}")
-    
