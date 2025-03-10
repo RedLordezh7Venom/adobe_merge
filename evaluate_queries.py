@@ -1,16 +1,25 @@
 import json
 import psycopg2
-import pandas as pd
 from psycopg2.extras import RealDictCursor
-import hashlib
+from decimal import Decimal
+from datetime import date
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (if present)
+# Load environment variables
 load_dotenv()
 
+# Custom JSON encoder to handle Decimal and date objects
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)  # Convert Decimal to float
+        if isinstance(obj, date):
+            return obj.isoformat()  # Convert date to ISO format string
+        return super().default(obj)
+
+# Database connection function
 def get_db_connection():
-    """Create and return a connection to the PostgreSQL database."""
     return psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         database=os.getenv('DB_NAME', 'postgres'),
@@ -19,65 +28,44 @@ def get_db_connection():
         port=os.getenv('DB_PORT', '5432')
     )
 
+# Function to execute a query and return the results
 def execute_query(query):
-    """Execute a SQL query and return the results as a pandas DataFrame.
-    Uses a new connection for each query to avoid transaction problems."""
+    """Execute a SQL query and return the results as a list of dictionaries."""
     conn = None
     try:
         conn = get_db_connection()
         conn.autocommit = True  # Set autocommit to avoid transaction issues
-        
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query)
             results = cur.fetchall()
-            # Convert to pandas DataFrame for easier comparison
-            df = pd.DataFrame(results)
-            return df, None
+            return results, None
     except Exception as e:
         return None, str(e)
     finally:
         if conn:
             conn.close()
 
-def compare_query_results(df1, df2):
+# Function to compare two query results
+def compare_query_results(result1, result2):
     """
-    Compare two dataframes and check if they contain the same data.
+    Compare two query results (lists of dictionaries).
     Returns True if they match, False otherwise.
     """
-    if df1 is None or df2 is None:
+    if result1 is None or result2 is None:
         return False
     
-    # If one is empty and the other isn't, they don't match
-    if df1.empty != df2.empty:
+    # If the lengths are different, they don't match
+    if len(result1) != len(result2):
         return False
     
-    # If both are empty, they match
-    if df1.empty and df2.empty:
-        return True
+    # Compare each row
+    for row1, row2 in zip(result1, result2):
+        if row1 != row2:
+            return False
     
-    # Sort both dataframes to ensure consistent ordering
-    # First make sure they have the same columns
-    if sorted(df1.columns.tolist()) != sorted(df2.columns.tolist()):
-        return False
-    
-    # Sort by all columns to ensure consistent ordering
-    df1_sorted = df1.sort_values(by=df1.columns.tolist()).reset_index(drop=True)
-    df2_sorted = df2.sort_values(by=df2.columns.tolist()).reset_index(drop=True)
-    
-    # Compare the dataframes
-    return df1_sorted.equals(df2_sorted)
+    return True
 
-def generate_result_signature(df):
-    """
-    Generate a signature/hash for dataframe results to help with debugging.
-    """
-    if df is None or df.empty:
-        return "empty_result"
-    
-    # Convert dataframe to string and hash it
-    df_str = df.to_string()
-    return hashlib.md5(df_str.encode()).hexdigest()
-
+# Function to evaluate queries
 def evaluate_queries(test_file, output_file):
     """
     Evaluate the accuracy of SQL queries in output_file compared to test_file
@@ -107,7 +95,7 @@ def evaluate_queries(test_file, output_file):
             total += 1
             output_query = output_dict[nl]
             
-            # Execute both queries with separate connections
+            # Execute both queries
             test_results, test_error = execute_query(test_query)
             output_results, output_error = execute_query(output_query)
             
@@ -130,10 +118,8 @@ def evaluate_queries(test_file, output_file):
                     "NL": nl,
                     "Expected": test_query,
                     "Actual": output_query,
-                    "Expected_Signature": generate_result_signature(test_results),
-                    "Actual_Signature": generate_result_signature(output_results),
-                    "Expected_Shape": test_results.shape if test_results is not None else None,
-                    "Actual_Shape": output_results.shape if output_results is not None else None
+                    "Expected_Results": test_results,
+                    "Actual_Results": output_results
                 })
     
     # Calculate accuracy
@@ -141,12 +127,15 @@ def evaluate_queries(test_file, output_file):
     
     return accuracy, errors, matches, total
 
+# Main function
 def main():
-    test_file = "nl_test.json"
-    output_file = "output_sql_generation_task.json"
+    test_file = "nl_test.json"  # Replace with your input file path
+    output_file = "output_sql_generation_task.json"  # Replace with your output file path
     
+    # Evaluate queries
     accuracy, errors, matches, total = evaluate_queries(test_file, output_file)
     
+    # Print results
     print(f"Evaluation Results:")
     print(f"Total queries: {total}")
     print(f"Matching queries: {matches}")
@@ -168,21 +157,17 @@ def main():
             if 'Actual_Error' in error and error['Actual_Error']:
                 print(f"\nActual query error: {error['Actual_Error']}")
             
-            # Show result signatures if present
-            if 'Expected_Signature' in error:
-                print(f"\nExpected result signature: {error['Expected_Signature']}")
-            if 'Actual_Signature' in error:
-                print(f"\nActual result signature: {error['Actual_Signature']}")
-            
-            # Show result shapes if present
-            if 'Expected_Shape' in error:
-                print(f"\nExpected result shape: {error['Expected_Shape']}")
-            if 'Actual_Shape' in error:
-                print(f"\nActual result shape: {error['Actual_Shape']}")
+            # Show results if present
+            if 'Expected_Results' in error:
+                print(f"\nExpected results:")
+                print(json.dumps(error['Expected_Results'], indent=2, cls=CustomEncoder))
+            if 'Actual_Results' in error:
+                print(f"\nActual results:")
+                print(json.dumps(error['Actual_Results'], indent=2, cls=CustomEncoder))
             
             print("=" * 80)
 
-    # Also save results to a file
+    # Save results to a file
     with open("evaluation_results.json", "w") as f:
         json.dump({
             "accuracy": accuracy,
@@ -190,7 +175,7 @@ def main():
             "matches": matches,
             "mismatches": total - matches,
             "errors": errors
-        }, f, indent=2)
+        }, f, indent=2, cls=CustomEncoder)
     
     print(f"\nDetailed results saved to evaluation_results.json")
 

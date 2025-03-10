@@ -22,56 +22,8 @@ def load_input_file(file_path):
     with open(file_path, 'r') as file:
         data = json.load(file)
     return data
-
-# Function to generate SQL statements
-def generate_sqls(data):
-    """
-    Generate SQL statements from the NL queries using the database schema and Groq API.
-    
-    :param data: List of NL queries (dictionaries with "NL" key)
-    :return: List of dictionaries with "NL" and "Query" keys
-    """
-    sql_statements = []
-
-    # Process each NL query
-    for item in data:
-        nl_query = item.get("NL", "")
-        if not nl_query:
-            continue
-        delay = random.uniform(0, 0.1)
-        time.sleep(delay)
-    
-        
-        # Construct prompt for LLM
-        prompt = (
-            f"Generate a PostgreSQL query for the following request, based on the schema already provided:\n"
-            f"{nl_query}\n\n"
-            f"Return only the SQL statement in one line without any addition or markdown"
-        )
-
-        # Call Groq API
-        try:
-            response, _ = call_groq_api(
-                api_key=os.getenv("GROQ_KEY"),
-                model="llama-3.2-3b-preview",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500
-            )
-            sql_query = response['choices'][0]['message']['content'].strip()
-        except Exception as e:
-            sql_query = f"/* Error generating SQL: {str(e)} */"
-
-        # Append result
-        sql_statements.append({
-            "NL": nl_query,
-            "Query": sql_query
-        })
-
-    return sql_statements
-
-# Function to call the Groq API
 # Get database schema for all tables
+
 db_name = os.getenv("DB_NAME", "postgres")
 user = os.getenv("DB_USER", "postgres")
 password = os.getenv("DB_PASSWORD", "root")
@@ -88,6 +40,67 @@ for table in tables:
     schema_description += f"\nTable '{table}':\n"
     for column, dtype in table_schema.items():
         schema_description += f"- {column} ({dtype})\n"
+system_prompt = (
+        f"You are a database expert who generates precise, correct PostgreSQL queries from natural language. "
+        f"Output only the query with no explanations. The schema is as follows:\n\n"
+        f"{schema_description}\n\n"
+        f"Always use the schema provided above to generate the SQL queries."
+    )
+system_prompt = (
+        f"You are a database expert who generates precise, correct PostgreSQL queries from natural language. "
+        f"Output only the query with no explanations. The schema is as follows:\n\n"
+        f"{schema_description}\n\n"
+        f"Always use the schema provided above to generate the SQL queries."
+    )
+# Function to generate SQL statements
+def generate_sqls(data):
+    """
+    Generate SQL statements from the NL queries using the database schema and Groq API.
+    
+    :param data: List of NL queries (dictionaries with "NL" key)
+    :return: List of dictionaries with "NL" and "Query" keys
+    """
+    sql_statements = []
+
+    # Process each NL query
+    for item in data:
+        nl_query = item.get("NL", "")
+        if not nl_query:
+            continue
+        delay = random.uniform(0.1, 0.5)
+        time.sleep(delay)
+    
+        
+        # Construct prompt for LLM
+        prompt = (
+            f"Generate a PostgreSQL query for the following request, based on the schema already provided:\n"
+            f"{nl_query}\n\n"
+            f"Return only the SQL statement in one line without any addition or markdown"
+        )
+
+        # Call Groq API
+        try:
+            response, _ = call_groq_api(
+                api_key=os.getenv("GROQ_KEY"),
+                model="qwen-2.5-coder-32b",
+                messages=[{"role": "system", "content": system_prompt},{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500
+            )
+            sql_query = response['choices'][0]['message']['content'].strip()
+        except Exception as e:
+            sql_query = f"/* Error generating SQL: {str(e)} */"
+
+        # Append result
+        sql_statements.append({
+            "NL": nl_query,
+            "Query": sql_query
+        })
+
+    return sql_statements
+
+# Function to call the Groq API
+
 def call_groq_api(api_key, model, messages, temperature=0.0, max_tokens=1000, n=1):
     """
     NOTE: DO NOT CHANGE/REMOVE THE TOKEN COUNT CALCULATION 
@@ -135,11 +148,12 @@ def main():
     start = time.time()
     # Generate SQL statements
     #system prompt
+    
     call_groq_api(
                 api_key=os.getenv("GROQ_KEY"),
-                model="llama-3.2-3b-preview",
+                model="qwen-2.5-coder-32b",
                 messages=[
-    {"role": "system", "content": "You are a database expert who generates precise, correct PostgreSQL queries from natural language. Output only the query with no explanations, the schema is as follows {schema_description} ."},
+    {"role": "system", "content": system_prompt},
 ],
                 temperature=0.1,
                 max_tokens=500
