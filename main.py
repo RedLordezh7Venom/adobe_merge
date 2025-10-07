@@ -67,7 +67,7 @@ def generate_sqls(data):
         nl_query = item.get("NL", "")
         if not nl_query:
             continue
-        delay = random.uniform(0.1, 0.5)
+        delay = random.uniform(1.0, 1.5)
         time.sleep(delay)
     
         
@@ -129,7 +129,7 @@ def call_groq_api(api_key, model, messages, temperature=0.0, max_tokens=1000, n=
         'n': n
     }
 
-    response = requests.post(url, headers=headers, json=data)
+    response = requests.post(url, headers=headers, json=data)# a rest api call, not chat completion 
     response_json = response.json()
 
 
@@ -151,7 +151,7 @@ def main():
     
     call_groq_api(
                 api_key=os.getenv("GROQ_KEY"),
-                model="qwen-2.5-coder-32b",
+                model="gemma2-9b-it",
                 messages=[
     {"role": "system", "content": system_prompt},
 ],
